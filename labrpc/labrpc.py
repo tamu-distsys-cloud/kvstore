@@ -259,12 +259,3 @@ class Service:
             logging.fatal(f"labrpc.Service.dispatch(): unknown method {methname} in {req.svcMeth}; expecting one of {choices}")
             return ReplyMsg(False, None)
 
-def make_service(rcvr):
-    return Service(rcvr)
-
-def make_server():
-    return Server()
-
-def make_network():
-    return Network()
-
