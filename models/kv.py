@@ -5,13 +5,13 @@ from collections import defaultdict
 from porcupine.model import Model
 
 class KvInput:
-    def __init__(self, op, key, value=0):
+    def __init__(self, op, key, value=None):
         self.op = op  # 0 => get, 1 => put, 2 => append
         self.key = key
         self.value = value
 
 class KvOutput:
-    def __init__(self, value):
+    def __init__(self, value=None):
         self.value = value
 
 def partition(history):

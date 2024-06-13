@@ -71,7 +71,7 @@ class Config:
         kvsvc = Service(self.kvserver)
         srv = Server()
         srv.add_service(kvsvc)
-        self.net.add_server(0, srv)
+        self.net.add_server(SERVERID, srv)
 
     def begin(self, description):
         print(f"{description} ...\n")

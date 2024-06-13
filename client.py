@@ -1,6 +1,6 @@
 import random
 import threading
-from typing import Any
+from typing import Any, List
 
 from labrpc.labrpc import ClientEnd
 
@@ -17,7 +17,7 @@ class Clerk:
     # Keeps trying forever in the face of all other errors.
     #
     # You can send an RPC with code like this:
-    # reply = ck.server.call("KVServer.Get", args)
+    # reply = self.server.call("KVServer.Get", args)
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
@@ -29,7 +29,7 @@ class Clerk:
     # Shared by Put and Append.
     #
     # You can send an RPC with code like this:
-    # reply = ck.server.call("KVServer."+op, args)
+    # reply = self.server.call("KVServer."+op, args)
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
