@@ -3,6 +3,7 @@ import threading
 from typing import Any, List
 
 from labrpc.labrpc import ClientEnd
+from server import GetArgs, GetReply, PutAppendArgs, PutAppendReply
 
 def nrand() -> int:
     return random.getrandbits(62)
@@ -21,7 +22,7 @@ class Clerk:
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
-    # arguments. and reply must be passed as a pointer.
+    # arguments in server.py.
     def get(self, key: str) -> str:
         # You will have to modify this function.
         return ""
@@ -33,7 +34,7 @@ class Clerk:
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
-    # arguments. and reply must be passed as a pointer.
+    # arguments in server.py.
     def put_append(self, key: str, value: str, op: str) -> str:
         # You will have to modify this function.
         return ""
