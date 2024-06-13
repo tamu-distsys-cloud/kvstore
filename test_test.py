@@ -4,7 +4,6 @@ import time
 import threading
 from typing import Any, List, Tuple
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 import queue
 import gc
 import psutil
@@ -80,23 +79,28 @@ def append(cfg, ck, key: str, value: str, log: OpLog, cli: int) -> str:
 
 # a client runs the function f and then signals it is done
 def run_client(t: unittest.TestCase, cfg, me: int, ca, fn):
-    print(f"client {me} running")
+    # print(f"client {me} running")
     ok = False
     try:
         ck = cfg.make_client()
         fn(me, ck, t)
         ok = True
+        cfg.delete_client(ck)
     finally:
         ca.put(ok)
-        cfg.delete_client(ck)
 
 # spawn ncli clients and wait until they are all done
 def spawn_clients_and_wait(t: unittest.TestCase, cfg, ncli: int, fn):
-    with ThreadPoolExecutor(max_workers=ncli) as executor:
-        futures = [executor.submit(run_client, t, cfg, cli, queue.Queue(), fn) for cli in range(ncli)]
-        for future in futures:
-            if not future.result():
-                t.fail("failure")
+    ca = [None] * ncli
+    for cli in range(ncli):
+        ca[cli] = queue.Queue()
+        threading.Thread(target=run_client, args=(t, cfg, cli, ca[cli], fn,)).start()
+    print("spawn_clients_and_wait: waiting for clients")
+    for cli in range(ncli):
+        ok = ca[cli].get
+        print(f"spawn_clients_and_wait: client {cli} is done")
+        if not ok:
+            t.fail("failure")
 
 # predict effect of append(k, val) if old value is prev
 def next_value(prev: str, val: str) -> str:
@@ -173,6 +177,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
         clnts = [queue.Queue() for _ in range(nclients)]
 
         def client_func(cli, myck, t):
+            print(f"Client {cli}")
             j = 0
             try:
                 last = ""  # only used when not randomkeys
@@ -185,7 +190,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
                         key = str(cli)
                     nv = f"x {cli} {j} y"
                     if random.randint(0, 1000) < 500:
-                        print(f"{cli}: client new append {nv}")
+                        # print(f"{cli}: client new append {nv}")
                         l = append(cfg, myck, key, nv, op_log, cli)
                         if not randomkeys:
                             if j > 0:
@@ -200,7 +205,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
                         put(cfg, myck, key, nv, op_log, cli)
                         j += 1
                     else:
-                        print(f"{cli}: client new get {key}")
+                        # print(f"{cli}: client new get {key}")
                         v = get(cfg, myck, key, op_log, cli)
                         if not randomkeys and v != last:
                             t.fail(f"get wrong value, key {key}, wanted:\n{last}\n, got\n{v}\n")
@@ -217,7 +222,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
             for cli in range(nclients):
                 j = clnts[cli].get()
                 key = str(cli)
-                print(f"check {j} for client {i}")
+                # print(f"check {j} for client {i}")
                 v = get(cfg, ck, key, op_log, 0)
                 if not randomkeys:
                     check_clnt_appends(t, cli, v, j)
@@ -242,9 +247,9 @@ class TestConcurrent(unittest.TestCase):
     def test_concurrent(self):
         generic_test(self, 5, False, False)
 
-# Test many clients, with unreliable network
-class TestConcurrentReliable(unittest.TestCase):
-    def test_concurrent_unreliable(self):
+# Test: unreliable net, many clients
+class TestUnreliable(unittest.TestCase):
+    def test_unreliable(self):
         generic_test(self, 5, True, False)
 
 # Test: unreliable net, many clients, one key

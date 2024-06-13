@@ -5,6 +5,7 @@ import time
 import io
 import queue
 from collections import defaultdict
+
 from labgob.labgob import LabEncoder, LabDecoder
 
 logging.basicConfig(level=logging.FATAL)
@@ -37,14 +38,14 @@ class ClientEnd:
         try:
             self.ch.put(req, block=False)
         except queue.Full:
-            return False
+            raise TimeoutError()
 
         # Wait for the reply
         rep = req.replyCh.get()
         if rep.ok:
             return LabDecoder(io.BytesIO(rep.reply)).decode()
         else:
-            return None
+            raise TimeoutError()
 
 class Network:
     def __init__(self):
@@ -108,8 +109,7 @@ class Network:
 
     def process_req(self, req):
         enabled, servername, server, isreliable, long_reordering = self.read_endname_info(req.endname)
-
-        if enabled and servername and server:
+        if enabled and (servername is not None) and (server is not None):
             if not isreliable:
                 time.sleep(random.randint(0, 27) / 1000)
 
