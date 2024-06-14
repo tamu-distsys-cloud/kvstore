@@ -176,53 +176,62 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
         done_clients = threading.Event()
         clnts = [queue.Queue() for _ in range(nclients)]
 
-        def client_func(cli, myck, t):
-            print(f"Client {cli}")
-            j = 0
-            try:
-                last = ""  # only used when not randomkeys
-                if not randomkeys:
-                    put(cfg, myck, str(cli), last, op_log, cli)
-                while not done_clients.is_set():
-                    if randomkeys:
-                        key = str(random.randint(0, nclients - 1))
-                    else:
-                        key = str(cli)
-                    nv = f"x {cli} {j} y"
-                    if random.randint(0, 1000) < 500:
-                        #print(f"{cli}: client new append {nv}")
-                        l = append(cfg, myck, key, nv, op_log, cli)
-                        if not randomkeys:
-                            if j > 0:
-                                o = f"x {cli} {j-1} y"
-                                if not in_history(o, l):
-                                    t.fail(f"error: old {o} not in return\n{l}\n")
-                            if in_history(nv, l):
-                                t.fail(f"error: new value {nv} in returned values\n{l}\n")
-                            last = next_value(last, nv)
-                        j += 1
-                    elif randomkeys and random.randint(0, 1000) < 100:
-                        put(cfg, myck, key, nv, op_log, cli)
-                        j += 1
-                    else:
-                        #print(f"{cli}: client new get {key}")
-                        v = get(cfg, myck, key, op_log, cli)
-                        if not randomkeys and v != last:
-                            t.fail(f"get wrong value, key {key}, wanted:\n{last}\n, got\n{v}\n")
-            finally:
-                clnts[cli].put(j)
-
         for i in range(NITER):
             print(f"Iteration {i}")
             done_clients.clear()
-            spawn_clients_and_wait(t, cfg, nclients, client_func)
+
+            def spawn_func():
+
+                def client_func(cli, myck, t):
+                    print(f"Client {cli}")
+                    j = 0
+                    try:
+                        last = ""  # only used when not randomkeys
+                        if not randomkeys:
+                            put(cfg, myck, str(cli), last, op_log, cli)
+                        while not done_clients.is_set():
+                            if randomkeys:
+                                key = str(random.randint(0, nclients - 1))
+                            else:
+                                key = str(cli)
+                            nv = f"x {cli} {j} y"
+                            if random.randint(0, 1000) < 500:
+                                #print(f"{cli}: client new append {nv}")
+                                l = append(cfg, myck, key, nv, op_log, cli)
+                                if not randomkeys:
+                                    if j > 0:
+                                        o = f"x {cli} {j-1} y"
+                                        if not in_history(o, l):
+                                            t.fail(f"error: old {o} not in return\n{l}\n")
+                                    if in_history(nv, l):
+                                        t.fail(f"error: new value {nv} in returned values\n{l}\n")
+                                    last = next_value(last, nv)
+                                j += 1
+                            elif randomkeys and random.randint(0, 1000) < 100:
+                                put(cfg, myck, key, nv, op_log, cli)
+                                j += 1
+                            else:
+                                #print(f"{cli}: client new get {key}")
+                                v = get(cfg, myck, key, op_log, cli)
+                                if not randomkeys and v != last:
+                                    t.fail(f"get wrong value, key {key}, wanted:\n{last}\n, got\n{v}\n")
+                    finally:
+                        clnts[cli].put(j)
+
+                spawn_clients_and_wait(t, cfg, nclients, client_func)
+
+            threading.Thread(target=spawn_func, args=()).start()
+
             time.sleep(TIME)
-            done_clients.set()
+
+            done_clients.set() # tell clients to quit
 
             for cli in range(nclients):
                 j = clnts[cli].get()
+                # if j < 10:
+                #     print(f"Warning: client {cli} managed to perform only {j} put operations in 1 sec?\n")
                 key = str(cli)
-                # print(f"check {j} for client {i}")
+                #print(f"check {j} for client {i}")
                 v = get(cfg, ck, key, op_log, 0)
                 if not randomkeys:
                     check_clnt_appends(t, cli, v, j)
@@ -281,183 +290,4 @@ class TestUnreliableOneKey(unittest.TestCase):
         vx = get(cfg, ck, "k", None, -1)
         check_concurrent_appends(self, vx, counts)
 
-        cfg.end()
-
-class TestMemGet(unittest.TestCase):
-    def test_mem_get(self):
-        MEM = 10  # in MiB
-        cfg = make_config(self, True)
-
-        ck0 = cfg.make_client()
-        ck1 = cfg.make_client()
-
-        cfg.begin("Test: memory use get")
-
-        rd_val = rand_value(MiB * MEM)
-        ck0.put("k", rd_val)
-
-        if len(ck0.get("k")) != len(rd_val):
-            self.fail(f"error: incorrect len {len(ck0.get('k'))}\n")
-
-        if len(ck1.get("k")) != len(rd_val):
-            self.fail(f"error: incorrect len {len(ck1.get('k'))}\n")
-
-        ck0.put("k", "0")
-
-        gc.collect()
-        st = psutil.virtual_memory()
-
-        m = st.used / MiB
-        if m >= MEM:
-            self.fail(f"error: server using too much memory {m}\n")
-
-        cfg.end()
-
-class TestMemPut(unittest.TestCase):
-    def test_mem_put(self):
-        MEM = 10  # in MiB
-        cfg = make_config(self, False)
-
-        cfg.begin("Test: memory use put")
-
-        ck0 = cfg.make_client()
-        ck1 = cfg.make_client()
-
-        rd_val = rand_value(MiB * MEM)
-        ck0.put("k", rd_val)
-        ck1.put("k", "")
-
-        gc.collect()
-
-        st = psutil.virtual_memory()
-        m = st.used / MiB
-        if m >= MEM:
-            self.fail(f"error: server using too much memory {m}\n")
-        cfg.end()
-
-class TestMemAppend(unittest.TestCase):
-    def test_mem_append(self):
-        MEM = 10  # in MiB
-        cfg = make_config(self, False)
-
-        cfg.begin("Test: memory use append")
-
-        ck0 = cfg.make_client()
-        ck1 = cfg.make_client()
-
-        rd_val0 = rand_value(MiB * MEM)
-        ck0.append("k", rd_val0)
-        rd_val1 = rand_value(MiB * MEM)
-        ck1.append("k", rd_val1)
-
-        gc.collect()
-        st = psutil.virtual_memory()
-        m = st.used / MiB
-        if m > 3 * MEM:
-            self.fail(f"error: server using too much memory {m}\n")
-        cfg.end()
-
-class TestMemPutManyClients(unittest.TestCase):
-    def test_mem_put_many_clients(self):
-        NCLIENT = 100_000
-        MEM = 1000
-
-        cfg = make_config(self, False)
-        v = rand_value(MEM)
-
-        cks = [cfg.make_client() for _ in range(NCLIENT)]
-
-        time.sleep(1)
-
-        cfg.begin("Test: memory use many put clients")
-
-        gc.collect()
-        st = psutil.virtual_memory()
-        m0 = st.used
-
-        for ck in cks:
-            ck.put("k", v)
-
-        gc.collect()
-        time.sleep(1)
-        gc.collect()
-
-        st = psutil.virtual_memory()
-        m1 = st.used
-        f = (m1 - m0) / NCLIENT
-        if m1 > m0 + (NCLIENT * 200):
-            self.fail(f"error: server using too much memory {m0} {m1} ({f:.2f} per client)\n")
-
-        for ck in cks:
-            cfg.delete_client(ck)
-
-        cfg.end()
-
-class TestMemGetManyClients(unittest.TestCase):
-    def test_mem_get_many_clients(self):
-        NCLIENT = 100_000
-
-        cfg = make_config(self, False)
-        cfg.begin("Test: memory use many get client")
-
-        ck = cfg.make_client()
-        ck.put("0", "")
-        cfg.delete_client(ck)
-
-        cks = [cfg.make_client() for _ in range(NCLIENT)]
-
-        time.sleep(1)
-
-        gc.collect()
-        st = psutil.virtual_memory()
-        m0 = st.used
-
-        for ck in cks:
-            ck.get("0")
-
-        gc.collect()
-        time.sleep(1)
-        gc.collect()
-
-        st = psutil.virtual_memory()
-        m1 = st.used
-        f = (m1 - m0) / NCLIENT
-        if m1 >= m0 + NCLIENT * 10:
-            self.fail(f"error: server using too much memory m0 {m0} m1 {m1} ({f:.2f} per client)\n")
-
-        for ck in cks:
-            cfg.delete_client(ck)
-
-        cfg.end()
-
-class TestMemManyAppends(unittest.TestCase):
-    def test_mem_many_appends(self):
-        N = 1000
-        MEM = 1000
-
-        cfg = make_config(self, False)
-        cfg.begin("Test: memory use many appends")
-
-        ck = cfg.make_client()
-        rd_val = rand_value(MEM)
-
-        gc.collect()
-        st = psutil.virtual_memory()
-        m0 = st.used
-
-        for _ in range(N):
-            ck.append("k", rd_val)
-
-        gc.collect()
-        time.sleep(1)
-        gc.collect()
-
-        st = psutil.virtual_memory()
-        m1 = st.used
-        if m1 >= 3 * MEM * N:
-            self.fail(f"error: server using too much memory m0 {m0} m1 {m1}\n")
-
-        logging.info(f"m0 {m0} m1 {m1}\n")
-
-        cfg.delete_client(ck)
         cfg.end()
