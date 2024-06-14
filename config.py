@@ -11,8 +11,6 @@ from labrpc.labrpc import Network, Service, Server
 from client import Clerk
 from server import KVServer
 
-SERVERID = 0
-
 def randstring(n):
     b = os.urandom(2 * n)
     s = base64.urlsafe_b64encode(b).decode('utf-8')
@@ -28,10 +26,10 @@ class Config:
         self.mu = threading.Lock()
         self.t = t
         self.net = Network()
-        self.kvserver = None
+        self.nservers = 0
+        self.kvservers = None
         self.endname = ""
         self.clerks = {}
-        self.next_client_id = SERVERID + 1
         self.start = time.time()
         self.t0 = None
         self.rpcs0 = 0
@@ -43,35 +41,39 @@ class Config:
 
     def make_client(self):
         with self.mu:
-            endname = randstring(20)
-            end = self.net.make_end(endname)
-            self.net.connect(endname, SERVERID)
-            ck = Clerk(end)
-            self.clerks[ck] = endname
-            self.next_client_id += 1
+            endnames = [randstring(20) for i in range(self.nservers)]
+            ends = [self.net.make_end(endname) for endname in endnames]
+            for srvid in range(self.nservers):
+                self.net.connect(endnames[srvid], srvid)
+            ck = Clerk(ends)
+            self.clerks[ck] = endnames
             self.connect_client_unlocked(ck)
         return ck
 
     def delete_client(self, ck):
         with self.mu:
-            v = self.clerks[ck]
-            self.net.delete_end(v)
+            for v in self.clerks[ck]:
+                self.net.delete_end(v)
             del self.clerks[ck]
 
     def connect_client_unlocked(self, ck):
-        endname = self.clerks[ck]
-        self.net.enable(endname, True)
+        endnames = self.clerks[ck]
+        for endname in endnames:
+            self.net.enable(endname, True)
 
     def connect_client(self, ck):
         with self.mu:
             self.connect_client_unlocked(ck)
 
-    def start_server(self):
-        self.kvserver = KVServer()
-        kvsvc = Service(self.kvserver)
-        srv = Server()
-        srv.add_service(kvsvc)
-        self.net.add_server(SERVERID, srv)
+    def start_cluster(self, nservers):
+        self.nservers = nservers
+        self.kvserver = [None] * nservers
+        for srvid in range(nservers):
+            self.kvserver[srvid] = KVServer()
+            kvsvc = Service(self.kvserver[srvid])
+            srv = Server()
+            srv.add_service(kvsvc)
+            self.net.add_server(srvid, srv)
 
     def begin(self, description):
         print(f"{description} ...\n")
@@ -96,12 +98,18 @@ class Config:
             print("  ... Passed --")
             print(f" t {t} nrpc {nrpc} ops {ops}\n")
 
-def make_config(t, unreliable):
+def make_single_config(t, unreliable):
     cfg = Config(t)
     cfg.clerks = {}
-    cfg.next_client_id = SERVERID + 1
     cfg.start = time.time()
-    cfg.start_server()
+    cfg.start_cluster(1)
     cfg.net.reliable(not unreliable)
     return cfg
 
+def make_shard_config(t, nservers, unreliable):
+    cfg = Config(t)
+    cfg.clerks = {}
+    cfg.start = time.time()
+    cfg.start_cluster(nservers)
+    cfg.net.reliable(not unreliable)
+    return cfg

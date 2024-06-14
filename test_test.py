@@ -11,7 +11,7 @@ import psutil
 from porcupine.model import Operation
 from porcupine.porcupine import check_operations_verbose
 from models.kv import KvInput, KvOutput, KvModel
-from config import make_config
+from config import make_single_config, make_shard_config
 
 linearizability_check_timeout = 1  # in seconds
 MiB = 1024 * 1024
@@ -166,7 +166,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
     else:
         title += "one client"
 
-    cfg = make_config(t, unreliable)
+    cfg = make_single_config(t, unreliable)
     try:
         cfg.begin(title)
         op_log = OpLog()
@@ -264,7 +264,7 @@ class TestUnreliable(unittest.TestCase):
 # Test: unreliable net, many clients, one key
 class TestUnreliableOneKey(unittest.TestCase):
     def test_unreliable_one_key(self):
-        cfg = make_config(self, True)
+        cfg = make_single_config(self, True)
         ck = cfg.make_client()
 
         cfg.begin("Test: concurrent append to same key, unreliable")

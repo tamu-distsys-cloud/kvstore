@@ -9,8 +9,8 @@ def nrand() -> int:
     return random.getrandbits(62)
 
 class Clerk:
-    def __init__(self, server: ClientEnd):
-        self.server = server
+    def __init__(self, servers: List[ClientEnd]):
+        self.servers = servers
         # You will have to modify this class.
 
     # Fetch the current value for a key.
@@ -18,7 +18,8 @@ class Clerk:
     # Keeps trying forever in the face of all other errors.
     #
     # You can send an RPC with code like this:
-    # reply = self.server.call("KVServer.Get", args)
+    # reply = self.server[i].call("KVServer.Get", args)
+    # assuming that you are connecting to the i-th server.
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
@@ -30,7 +31,8 @@ class Clerk:
     # Shared by Put and Append.
     #
     # You can send an RPC with code like this:
-    # reply = self.server.call("KVServer."+op, args)
+    # reply = self.servers[i].call("KVServer."+op, args)
+    # assuming that you are connecting to the i-th server.
     #
     # The types of args and reply (including whether they are pointers)
     # must match the declared types of the RPC handler function's
