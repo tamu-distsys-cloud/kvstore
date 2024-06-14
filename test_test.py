@@ -6,8 +6,6 @@ import threading
 from typing import Any, List, Tuple
 import unittest
 import queue
-import gc
-import psutil
 import base64
 
 from porcupine.model import Operation
