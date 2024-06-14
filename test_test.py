@@ -1,3 +1,4 @@
+import os
 import logging
 import random
 import time
@@ -7,11 +8,12 @@ import unittest
 import queue
 import gc
 import psutil
+import base64
 
 from porcupine.model import Operation
 from porcupine.porcupine import check_operations_verbose
 from models.kv import KvInput, KvOutput, KvModel
-from config import make_single_config, make_shard_config
+from config import make_single_config, make_shard_config, Config
 
 linearizability_check_timeout = 1  # in seconds
 MiB = 1024 * 1024
@@ -152,7 +154,7 @@ def rand_value(n: int) -> str:
 # operations to the server for some period of time.  After the period
 # is over, test checks that all appended values are present and in
 # order for a particular key.  If unreliable is set, RPCs may fail.
-def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomkeys: bool):
+def generic_test(t: unittest.TestCase, nclients: int, shards: Tuple[int, int], unreliable: bool, randomkeys: bool):
     NITER = 3
     TIME = 1  # in seconds
 
@@ -161,12 +163,17 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
         title += "unreliable net, "
     if randomkeys:
         title += "random keys, "
+    if shards[0] > 1:
+        title += "sharded, "
     if nclients > 1:
         title += "many clients"
     else:
         title += "one client"
 
-    cfg = make_single_config(t, unreliable)
+    if shards[0] == 1:
+        cfg = make_single_config(t, unreliable)
+    else:
+        cfg = make_shard_config(t, shards[0], shards[1], unreliable)
     try:
         cfg.begin(title)
         op_log = OpLog()
@@ -249,17 +256,17 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
 # Test one client
 class TestBasic(unittest.TestCase):
     def test_basic(self):
-        generic_test(self, 1, False, False)
+        generic_test(self, 1, (1, 1), False, False)
 
 # Test many clients
 class TestConcurrent(unittest.TestCase):
     def test_concurrent(self):
-        generic_test(self, 5, False, False)
+        generic_test(self, 5, (1, 1), False, False)
 
 # Test: unreliable net, many clients
 class TestUnreliable(unittest.TestCase):
     def test_unreliable(self):
-        generic_test(self, 5, True, False)
+        generic_test(self, 5, (1, 1), True, False)
 
 # Test: unreliable net, many clients, one key
 class TestUnreliableOneKey(unittest.TestCase):
@@ -291,3 +298,134 @@ class TestUnreliableOneKey(unittest.TestCase):
         check_concurrent_appends(self, vx, counts)
 
         cfg.end()
+
+def check(t: unittest.TestCase, ck, key: str, value: str):
+    v = ck.get(key)
+    if v != value:
+        t.fail(f"get({key}): expected:\n{value}\nreceived:\n{v}")
+
+def randstring(n):
+    b = os.urandom(2 * n)
+    s = base64.urlsafe_b64encode(b).decode('utf-8')
+    return s[:n]
+
+# Test static 3-way sharding
+class TestStaticShards(unittest.TestCase):
+    def test_static_shards(self):
+        cfg = make_shard_config(self, 3, 2, False)
+        ck = cfg.make_client()
+
+        n = 10
+        ka = [str(i) for i in range(n)]
+        va = [randstring(20) for i in range(n)]
+        for i in range(n):
+            ck.put(ka[i], va[i])
+        for i in range(n):
+            check(self, ck, ka[i], va[i])
+
+        # make sure that the data really is shared by
+        # shutting down one shard and checking that some
+        # get()s don't succeed.
+        cfg.stop_server(2)
+
+        ch = queue.Queue()
+        for xi in range(n):
+            ck1 = cfg.make_client() # only one call allowed per client
+
+            def client_func(i):
+                v = ck1.get(ka[i])
+                if v != va[i]:
+                    ch.put(f"get({ka[i]}): expected:\n{va[i]}\nreceived:\n{v}")
+                else:
+                    ch.put("")
+
+            threading.Thread(target=client_func, args=(xi,)).start()
+
+        # wait a bit, only about 2/3 of the get()s should succeed.
+        ndone = 0
+        done = False
+        while not done:
+            try:
+                err = ch.get(timeout=2)
+                if err != "":
+                    logging.fatal(err)
+                ndone += 1
+            except queue.Empty:
+                done = True
+
+        accept_range = (int(n*2/3)-1, int(n*2/3)+1)
+        if ndone < accept_range[0] or ndone > accept_range[1]:
+            self.fail(f"expected {accept_range[0]}-{accept_range[1]} completions with one shard dead; got {ndone}")
+
+        # bring the crashed shard/group back to life
+        cfg.start_server(2)
+        for i in range(n):
+            check(self, ck, ka[i], va[i])
+
+        print("  ... Passed")
+
+# do servers reject operations on shards for
+# which they are not responsible?
+class TestRejection(unittest.TestCase):
+    def test_rejection(self):
+        print("Test: rejection ...")
+
+        cfg = make_shard_config(self, 3, 2, False)
+        ck = cfg.make_client()
+
+        n = 10
+        ka = [str(i) for i in range(n)]
+        va = [randstring(20) for i in range(n)]
+        for i in range(n):
+            ck.put(ka[i], va[i])
+        for i in range(n):
+            check(self, ck, ka[i], va[i])
+
+        # now create a separate config that has only server
+        # handling all the shards. The k/v server still uses
+        # the original config, so the k/v servers still think
+        # the shards are divided between the k/v servers.
+        new_cfg = Config(self)
+        new_cfg.net = cfg.net
+        new_cfg.nservers = 1
+        new_cfg.kvservers = cfg.kvservers[:1]
+
+        # ask clients that use the new config to fetch keys.
+        # they'll send all requests to a single k/v server.
+        # 2/3 the requests should be rejected due to being sent to
+        # the k/v server that doesn't think it is handling the shard.
+        ch = queue.Queue()
+        for xi in range(n):
+            ck1 = new_cfg.make_client() # only one call allowed per client
+
+            def client_func(i):
+                v = ck1.get(ka[i])
+                if v != va[i]:
+                    ch.put(f"get({ka[i]}): expected:\n{va[i]}\nreceived:\n{v}")
+                else:
+                    ch.put("")
+
+            threading.Thread(target=client_func, args=(xi,)).start()
+
+        # wait a bit, only about 2/3 of the get()s should succeed.
+        ndone = 0
+        done = False
+        while not done:
+            try:
+                err = ch.get(timeout=2)
+                if err != "":
+                    logging.fatal(err)
+                ndone += 1
+            except queue.Empty:
+                done = True
+
+        accept_range = (int(n*2/3)-1, int(n*2/3)+1)
+        if ndone < accept_range[0] or ndone > accept_range[1]:
+            self.fail(f"expected {accept_range[0]}-{accept_range[1]} completions; got {ndone}")
+
+        print("  ... Passed")
+
+# Test: unreliable net, many clients
+class TestUnreliableShards(unittest.TestCase):
+    def test_unreliable_shards(self):
+        generic_test(self, 5, (5, 3), True, False)

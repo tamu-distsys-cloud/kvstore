@@ -28,7 +28,6 @@ class Config:
         self.net = Network()
         self.nservers = 0
         self.kvservers = None
-        self.endname = ""
         self.clerks = {}
         self.start = time.time()
         self.t0 = None
@@ -45,7 +44,7 @@ class Config:
             ends = [self.net.make_end(endname) for endname in endnames]
             for srvid in range(self.nservers):
                 self.net.connect(endnames[srvid], srvid)
-            ck = Clerk(ends)
+            ck = Clerk(ends, self)
             self.clerks[ck] = endnames
             self.connect_client_unlocked(ck)
         return ck
@@ -67,13 +66,27 @@ class Config:
 
     def start_cluster(self, nservers):
         self.nservers = nservers
-        self.kvserver = [None] * nservers
+        self.kvservers = [None] * nservers
         for srvid in range(nservers):
-            self.kvserver[srvid] = KVServer()
-            kvsvc = Service(self.kvserver[srvid])
+            self.kvservers[srvid] = KVServer(self)
+            kvsvc = Service(self.kvservers[srvid])
             srv = Server()
             srv.add_service(kvsvc)
             self.net.add_server(srvid, srv)
+
+    def stop_server(self, srvid):
+        with self.mu:
+            for ck in self.clerks.keys():
+                endnames = self.clerks[ck]
+                assert srvid < len(endnames)
+                self.net.enable(endnames[srvid], False)
+
+    def start_server(self, srvid):
+        with self.mu:
+            for ck in self.clerks.keys():
+                endnames = self.clerks[ck]
+                assert srvid < len(endnames)
+                self.net.enable(endnames[srvid], True)
 
     def begin(self, description):
         print(f"{description} ...\n")
@@ -106,10 +119,11 @@ def make_single_config(t, unreliable):
     cfg.net.reliable(not unreliable)
     return cfg
 
-def make_shard_config(t, nservers, unreliable):
+def make_shard_config(t, nshards, nreplicas, unreliable):
     cfg = Config(t)
     cfg.clerks = {}
     cfg.start = time.time()
-    cfg.start_cluster(nservers)
+    cfg.start_cluster(nshards)
+    cfg.nreplicas = nreplicas
     cfg.net.reliable(not unreliable)
     return cfg

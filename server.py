@@ -32,8 +32,10 @@ class GetReply:
         self.value = value
 
 class KVServer:
-    def __init__(self):
+    def __init__(self, cfg):
         self.mu = threading.Lock()
+        self.cfg = cfg
+
         # Your definitions here.
 
     def Get(self, args: GetArgs):

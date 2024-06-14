@@ -9,9 +9,11 @@ def nrand() -> int:
     return random.getrandbits(62)
 
 class Clerk:
-    def __init__(self, servers: List[ClientEnd]):
+    def __init__(self, servers: List[ClientEnd], cfg):
         self.servers = servers
-        # You will have to modify this class.
+        self.cfg = cfg
+
+        # Your definitions here.
 
     # Fetch the current value for a key.
     # Returns "" if the key does not exist.
