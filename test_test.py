@@ -97,7 +97,7 @@ def spawn_clients_and_wait(t: unittest.TestCase, cfg, ncli: int, fn):
         threading.Thread(target=run_client, args=(t, cfg, cli, ca[cli], fn,)).start()
     print("spawn_clients_and_wait: waiting for clients")
     for cli in range(ncli):
-        ok = ca[cli].get
+        ok = ca[cli].get()
         print(f"spawn_clients_and_wait: client {cli} is done")
         if not ok:
             t.fail("failure")
@@ -190,7 +190,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
                         key = str(cli)
                     nv = f"x {cli} {j} y"
                     if random.randint(0, 1000) < 500:
-                        # print(f"{cli}: client new append {nv}")
+                        #print(f"{cli}: client new append {nv}")
                         l = append(cfg, myck, key, nv, op_log, cli)
                         if not randomkeys:
                             if j > 0:
@@ -205,7 +205,7 @@ def generic_test(t: unittest.TestCase, nclients: int, unreliable: bool, randomke
                         put(cfg, myck, key, nv, op_log, cli)
                         j += 1
                     else:
-                        # print(f"{cli}: client new get {key}")
+                        #print(f"{cli}: client new get {key}")
                         v = get(cfg, myck, key, op_log, cli)
                         if not randomkeys and v != last:
                             t.fail(f"get wrong value, key {key}, wanted:\n{last}\n, got\n{v}\n")
