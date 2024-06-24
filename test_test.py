@@ -389,7 +389,7 @@ class TestRejection(unittest.TestCase):
         new_cfg.net = cfg.net
         new_cfg.nservers = 1
         new_cfg.kvservers = cfg.kvservers[:1]
-        new_cfg.running_servers = set([1])
+        new_cfg.running_servers = set([0])
 
         # ask clients that use the new config to fetch keys.
         # they'll send all requests to a single k/v server.
