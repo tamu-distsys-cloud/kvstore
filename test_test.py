@@ -321,9 +321,10 @@ class TestStaticShards(unittest.TestCase):
         for i in range(n):
             check(self, ck, ka[i], va[i])
 
-        # make sure that the data really is shared by
-        # shutting down one shard and checking that some
+        # make sure that the data really is sharded by
+        # shutting down two shards and checking that some
         # get()s don't succeed.
+        cfg.stop_server(1)
         cfg.stop_server(2)
 
         ch = queue.Queue()
@@ -356,6 +357,7 @@ class TestStaticShards(unittest.TestCase):
             self.fail(f"expected {accept_range[0]}-{accept_range[1]} completions with one shard dead; got {ndone}")
 
         # bring the crashed shard/group back to life
+        cfg.start_server(1)
         cfg.start_server(2)
         for i in range(n):
             check(self, ck, ka[i], va[i])
@@ -387,6 +389,7 @@ class TestRejection(unittest.TestCase):
         new_cfg.net = cfg.net
         new_cfg.nservers = 1
         new_cfg.kvservers = cfg.kvservers[:1]
+        new_cfg.running_servers = set([1])
 
         # ask clients that use the new config to fetch keys.
         # they'll send all requests to a single k/v server.

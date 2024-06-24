@@ -28,11 +28,13 @@ class Config:
         self.net = Network()
         self.nservers = 0
         self.kvservers = None
+        self.running_servers = set()
         self.clerks = {}
         self.start = time.time()
         self.t0 = None
         self.rpcs0 = 0
         self.ops = 0
+        self.nreplicas = 1
 
     def cleanup(self):
         with self.mu:
@@ -57,8 +59,8 @@ class Config:
 
     def connect_client_unlocked(self, ck):
         endnames = self.clerks[ck]
-        for endname in endnames:
-            self.net.enable(endname, True)
+        for srvid in range(self.nservers):
+            self.net.enable(endnames[srvid], srvid in self.running_servers)
 
     def connect_client(self, ck):
         with self.mu:
@@ -73,20 +75,27 @@ class Config:
             srv = Server()
             srv.add_service(kvsvc)
             self.net.add_server(srvid, srv)
+            self.running_servers.add(srvid)
 
     def stop_server(self, srvid):
         with self.mu:
+            if srvid not in self.running_servers:
+                return
             for ck in self.clerks.keys():
                 endnames = self.clerks[ck]
                 assert srvid < len(endnames)
                 self.net.enable(endnames[srvid], False)
+            self.running_servers.remove(srvid)
 
     def start_server(self, srvid):
         with self.mu:
+            if srvid in self.running_servers:
+                return
             for ck in self.clerks.keys():
                 endnames = self.clerks[ck]
                 assert srvid < len(endnames)
                 self.net.enable(endnames[srvid], True)
+            self.running_servers.add(srvid)
 
     def begin(self, description):
         print(f"{description} ...\n")
